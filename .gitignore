@@ -1,0 +1,50 @@
+# Node.js関連
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/
+package-lock.json
+yarn.lock
+
+# TypeScript関連
+dist/
+*.tsbuildinfo
+*.js.map
+
+# 環境変数
+.env
+.env.*
+!.env.example
+
+# エディタ/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.history/
+
+# ログファイル
+logs/
+*.log
+
+# キャッシュ
+.cache/
+.eslintcache
+.parcel-cache/
+
+# テストカバレッジ
+coverage/
+.nyc_output/
+
+# ビルド出力
+build/
+out/
+.serverless/
+
+# その他
+.tmp/
+temp/

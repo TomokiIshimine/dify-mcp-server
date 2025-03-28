@@ -1,0 +1,35 @@
+{
+  "name": "@tonlab/dify-mcp-server",
+  "version": "1.0.1",
+  "description": "Dify MCP Server. This is a tool server for Dify Workflow.",
+  "main": "dist/index.js",
+  "bin": {
+    "dify-workflow-tool-server": "./dist/index.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node --esm src/index.ts",
+    "test": "npm run build && node --experimental-vm-modules node_modules/jest/bin/jest.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.8.0",
+    "@types/node": "^22.13.14",
+    "@types/node-fetch": "^2.6.12",
+    "node-fetch": "^3.3.2",
+    "typescript": "^5.8.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2"
+  }
+}

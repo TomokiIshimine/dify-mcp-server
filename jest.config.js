@@ -8,6 +8,7 @@ export default {
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
       useESM: true,
+      isolatedModules: true,
     }],
   },
   injectGlobals: true,

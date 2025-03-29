@@ -12,6 +12,40 @@ import { callDifyWorkflowWithKey } from "./dify/api.js";
 // Variables to store Dify Workflow API information
 let workflowTools: Tool[] = [];
 
+/**
+ * サーバー初期化エラーハンドリング関数
+ */
+function handleInitializationError(error: unknown): never {
+  console.error("Failed to retrieve or convert Dify Workflow information:");
+  
+  if (error instanceof Error) {
+    console.error(`Error message: ${error.message}`);
+    console.error(`Error stack: ${error.stack}`);
+  } else {
+    console.error(`Unknown error type: ${error}`);
+  }
+  
+  process.exit(1);
+}
+
+/**
+ * ツール実行中のエラーハンドリング関数
+ */
+function handleToolExecutionError(error: unknown, toolName: string, params: Record<string, any> | undefined): Error {
+  console.error(`Error executing tool '${toolName}':`);
+  
+  if (error instanceof Error) {
+    console.error(`Error message: ${error.message}`);
+    console.error(`Error stack: ${error.stack}`);
+    console.error(`Parameters: ${JSON.stringify(params)}`);
+    return error;
+  } else {
+    const genericError = new Error(`Unknown error occurred while executing tool '${toolName}': ${error}`);
+    console.error(`Parameters: ${JSON.stringify(params)}`);
+    return genericError;
+  }
+}
+
 // Server setup and initialization
 export async function setupServer() {
   // First, retrieve Dify Workflow information
@@ -20,9 +54,12 @@ export async function setupServer() {
     // Convert Dify Workflow to MCP tool definition
     workflowTools = convertDifyWorkflowToMCPTools(workflowDataList);
     
+    if (workflowTools.length === 0) {
+      throw new Error("No workflow tools were generated. Check Dify API keys and workflows configuration.");
+    }
+    
   } catch (error) {
-    console.error("Failed to retrieve or convert Dify Workflow information:", error);
-    process.exit(1);
+    handleInitializationError(error);
   }
   
   const server = new Server({
@@ -43,21 +80,20 @@ export async function setupServer() {
   
   // Tool execution request handler
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const toolName = request.params.name;
+    const workflowParams = request.params.arguments as Record<string, any> | undefined;
+    
     try {
-      const toolName = request.params.name;
-      const workflowParams = request.params.arguments as Record<string, any> | undefined;
-
       // Check if parameters are not undefined
       if (workflowParams === undefined) {
-        console.error("Error: Workflow parameters are undefined. Check request content.");
-        throw new Error(`Workflow parameters are undefined ${JSON.stringify(request)}`);
+        throw new Error(`Workflow parameters are undefined for tool '${toolName}'. Request: ${JSON.stringify(request)}`);
       }
 
       // Get the API key directly from the mapping
       const apiKey = workflowApiKeyMap.get(toolName);
       
       if (!apiKey) {
-        throw new Error(`No API key found for workflow: ${toolName}`);
+        throw new Error(`No API key found for workflow: '${toolName}'`);
       }
       
       // Call Dify Workflow directly with the API key
@@ -75,11 +111,7 @@ export async function setupServer() {
         ]
       };
     } catch (error) {
-      console.error(`Error in handler: ${error}`);
-      if (error instanceof Error) {
-        console.error(`Error stack: ${error.stack}`);
-      }
-      throw error;
+      throw handleToolExecutionError(error, toolName, workflowParams);
     }
   });
   

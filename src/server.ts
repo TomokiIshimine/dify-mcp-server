@@ -5,11 +5,12 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { appConfig } from "./config.js";
 import { getWorkflowManager } from "./dify/api.js";
+import { WorkflowManager } from "./dify/workflow.js";
 
 /**
- * サーバー初期化エラーハンドリング関数
+ * Server initialization error handler function
  */
-function handleInitializationError(error: unknown): never {
+export function handleInitializationError(error: unknown, exitProcess = true): never | void {
   console.error("Failed to retrieve or convert Dify Workflow information:");
   
   if (error instanceof Error) {
@@ -19,81 +20,116 @@ function handleInitializationError(error: unknown): never {
     console.error(`Unknown error type: ${error}`);
   }
   
-  process.exit(1);
+  if (exitProcess) {
+    process.exit(1);
+  }
+  
+  throw error;
 }
 
 /**
- * MCP Serverのセットアップと初期化
+ * Initialize workflow manager
  */
-export async function setupServer() {
-  // 設定を検証
-  appConfig.validateStrict();
-  
-  // ワークフローマネージャーの取得
-  const workflowManager = getWorkflowManager();
-  
+export async function initializeWorkflowManager(
+  workflowManager = getWorkflowManager()
+): Promise<WorkflowManager | undefined> {
   try {
-    // ワークフロー情報を初期化
     await workflowManager.initialize();
+    return workflowManager;
   } catch (error) {
     handleInitializationError(error);
+    return undefined; // This line will never be executed but is necessary for type checking
+  }
+}
+
+/**
+ * Set up request handlers
+ */
+export function setupRequestHandlers(server: Server, workflowManager: WorkflowManager): void {
+  // Tools list request handler
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const tools = workflowManager.getTools();
+    return { tools };
+  });
+  
+  // Tool execution request handler
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    return handleCallToolRequest(workflowManager, request);
+  });
+}
+
+/**
+ * Handle tool execution request
+ */
+export async function handleCallToolRequest(workflowManager: WorkflowManager, request: any) {
+  const toolName = request.params.name;
+  const workflowParams = request.params.arguments as Record<string, any> | undefined;
+  
+  // Error if parameters are undefined
+  if (workflowParams === undefined) {
+    const error = new Error(`Workflow parameters are undefined for tool '${toolName}'. Request: ${JSON.stringify(request)}`);
+    console.error(error.message);
+    throw error;
   }
   
-  // サーバー設定の取得
-  const serverConfig = appConfig.getServerConfig();
-  
-  // サーバーの作成
-  const server = new Server(serverConfig, {
+  try {
+    // Execute workflow
+    const outputContent = await workflowManager.executeWorkflow(toolName, workflowParams);
+    
+    return {
+      content: [
+        {
+          type: "text",
+          text: typeof outputContent === 'object' ? JSON.stringify(outputContent) : outputContent
+        }
+      ]
+    };
+  } catch (error) {
+    console.error(`Error executing tool '${toolName}':`, error);
+    
+    if (error instanceof Error) {
+      console.error(`Parameters: ${JSON.stringify(workflowParams)}`);
+      throw error;
+    } else {
+      const genericError = new Error(`Unknown error occurred while executing tool '${toolName}': ${error}`);
+      console.error(`Parameters: ${JSON.stringify(workflowParams)}`);
+      throw genericError;
+    }
+  }
+}
+
+/**
+ * Create server instance
+ */
+export function createServer(serverConfig = appConfig.getServerConfig()): Server {
+  return new Server(serverConfig, {
     capabilities: {
       tools: {
         enabled: true
       }
     }
   });
+}
+
+/**
+ * Set up and initialize MCP Server
+ */
+export async function setupServer(
+  config = appConfig,
+  workflowManagerFactory = getWorkflowManager
+): Promise<Server> {
+  // Validate configuration
+  config.validateStrict();
   
-  // ツール一覧リクエストハンドラー
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const tools = workflowManager.getTools();
-    return { tools };
-  });
+  // Get and initialize workflow manager
+  const workflowManager = workflowManagerFactory();
+  await initializeWorkflowManager(workflowManager);
   
-  // ツール実行リクエストハンドラー
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const toolName = request.params.name;
-    const workflowParams = request.params.arguments as Record<string, any> | undefined;
-    
-    // パラメータが未定義の場合はエラー
-    if (workflowParams === undefined) {
-      const error = new Error(`Workflow parameters are undefined for tool '${toolName}'. Request: ${JSON.stringify(request)}`);
-      console.error(error.message);
-      throw error;
-    }
-    
-    try {
-      // ワークフローの実行
-      const outputContent = await workflowManager.executeWorkflow(toolName, workflowParams);
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: typeof outputContent === 'object' ? JSON.stringify(outputContent) : outputContent
-          }
-        ]
-      };
-    } catch (error) {
-      console.error(`Error executing tool '${toolName}':`, error);
-      
-      if (error instanceof Error) {
-        console.error(`Parameters: ${JSON.stringify(workflowParams)}`);
-        throw error;
-      } else {
-        const genericError = new Error(`Unknown error occurred while executing tool '${toolName}': ${error}`);
-        console.error(`Parameters: ${JSON.stringify(workflowParams)}`);
-        throw genericError;
-      }
-    }
-  });
+  // Create server
+  const server = createServer(config.getServerConfig());
+  
+  // Set up request handlers
+  setupRequestHandlers(server, workflowManager);
   
   return server;
 } 

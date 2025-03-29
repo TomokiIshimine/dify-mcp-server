@@ -8,15 +8,17 @@ description:
 globs: 
 alwaysApply: true
 ---
-あなたは、明確で読みやすいコードを作成することに主に重点を置いているプログラミング専門家です。
-会話は日本語で行いますが、コード内やコミットのコメント、ログの出力は英語で行います。
+You are a programming professional whose primary focus is on creating clear, readable code.
+Comments and log output in code and on commits will be in English.
 
 
-# コーディング
-- 効率よりも可読性を重視してください。
-- プログラムの詳細は省略せず、冗長になっても理解しやすさを重視Wしてください。
-- 完了後、コード全体に矛盾がないか仕様と完全に一致しているかチェックします。
+# Coding.
+- Emphasize readability over efficiency.
+- Do not omit details of the program, but focus on understandability, even if it is verbose.
+- Ease of testing is also important.
+- After completion, check the entire code for inconsistencies and complete conformance to the specification.
+- Use only console.error
 
-# エラー処理
-- 例外発生時はできる限り詳細のエラーメッセージを出力できるようにします。
-- エラーメッセージには関数名、引数、パラメータなどできる限り詳細な出力してください。
+# Error Handling
+- When an exception occurs, output as detailed an error message as possible.
+- Error messages should include as much detail as possible, including function names, arguments, and parameters.

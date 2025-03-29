@@ -1,14 +1,39 @@
-import fetch from "node-fetch";
+import fetch, { Response as FetchResponse } from "node-fetch";
 import { DifyInfoResponse, DifyParametersResponse, DifyWorkflowResponse } from "../types.js";
+import { workflowApiKeyMap, AppConfig, handleConfigError } from "../config.js";
 
-// Get Dify configuration from environment variables
-const DIFY_BASE_URL = process.env.DIFY_BASE_URL;
-const DIFY_API_KEYS = process.env.DIFY_API_KEYS ? JSON.parse(process.env.DIFY_API_KEYS) : [];
+/**
+ * API レスポンスエラーのハンドリング関数
+ */
+async function handleApiResponseError(response: FetchResponse, endpoint: string, apiKey: string): Promise<never> {
+  const errorText = await response.text().catch(() => "Could not retrieve response text");
+  console.error(`${endpoint} API error code: ${response.status}`);
+  console.error(`${endpoint} API error message: ${response.statusText}`);
+  console.error(`${endpoint} API error response: ${errorText}`);
+  console.error(`API Key (masked): ${maskApiKey(apiKey)}`);
+  
+  throw new Error(`${endpoint} API error: ${response.status} ${response.statusText}`);
+}
 
-// For backward compatibility
-const DIFY_API_KEY = process.env.DIFY_API_KEY;
-if (DIFY_API_KEY && DIFY_API_KEYS.length === 0) {
-  DIFY_API_KEYS.push(DIFY_API_KEY);
+/**
+ * JSON パースエラーのハンドリング関数
+ */
+function handleParseError(error: unknown, endpoint: string): never {
+  console.error(`${endpoint} JSON parse error:`, error);
+  if (error instanceof Error) {
+    console.error(`Error stack: ${error.stack}`);
+  }
+  throw new Error(`Failed to parse ${endpoint} API response: ${error}`);
+}
+
+/**
+ * API キーをマスクする関数（ログ出力用）
+ */
+function maskApiKey(apiKey: string): string {
+  if (apiKey.length <= 8) {
+    return "********";
+  }
+  return `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}`;
 }
 
 // Function to retrieve Dify workflow information for a specific API key
@@ -16,13 +41,15 @@ export async function fetchWorkflowInfoWithKey(apiKey: string): Promise<{
   infoData: DifyInfoResponse, 
   paramsData: DifyParametersResponse
 }> {
-  if (!DIFY_BASE_URL) {
-    console.error("Environment variable DIFY_BASE_URL is not set");
-    process.exit(1);
+  // 設定を検証
+  const baseUrl = AppConfig.BASE_URL;
+  if (!baseUrl) {
+    handleConfigError("Environment variable DIFY_BASE_URL is not set");
   }
 
   try {
-    const infoResponse = await fetch(`${DIFY_BASE_URL}/info`, {
+    // Fetch workflow info
+    const infoResponse = await fetch(`${baseUrl}/info`, {
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json"
@@ -30,11 +57,7 @@ export async function fetchWorkflowInfoWithKey(apiKey: string): Promise<{
     });
 
     if (!infoResponse.ok) {
-      console.error(`/info API error code: ${infoResponse.status}`);
-      console.error(`/info API error message: ${infoResponse.statusText}`);
-      const errorText = await infoResponse.text().catch(() => "Could not retrieve response text");
-      console.error(`/info API error response: ${errorText}`);
-      throw new Error(`/info API error: ${infoResponse.status} ${infoResponse.statusText}`);
+      await handleApiResponseError(infoResponse, "/info", apiKey);
     }
 
     const infoDataText = await infoResponse.text();
@@ -43,11 +66,11 @@ export async function fetchWorkflowInfoWithKey(apiKey: string): Promise<{
     try {
       infoData = JSON.parse(infoDataText) as DifyInfoResponse;
     } catch (parseError) {
-      console.error("Dify Workflow info JSON parse error:", parseError);
-      throw new Error(`Failed to parse /info API response: ${parseError}`);
+      handleParseError(parseError, "/info");
     }
 
-    const paramsResponse = await fetch(`${DIFY_BASE_URL}/parameters`, {
+    // Fetch workflow parameters
+    const paramsResponse = await fetch(`${baseUrl}/parameters`, {
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json"
@@ -55,11 +78,7 @@ export async function fetchWorkflowInfoWithKey(apiKey: string): Promise<{
     });
 
     if (!paramsResponse.ok) {
-      console.error(`/parameters API error code: ${paramsResponse.status}`);
-      console.error(`/parameters API error message: ${paramsResponse.statusText}`);
-      const errorText = await paramsResponse.text().catch(() => "Could not retrieve response text");
-      console.error(`/parameters API error response: ${errorText}`);
-      throw new Error(`/parameters API error: ${paramsResponse.status} ${paramsResponse.statusText}`);
+      await handleApiResponseError(paramsResponse, "/parameters", apiKey);
     }
 
     const paramsDataText = await paramsResponse.text();
@@ -68,15 +87,14 @@ export async function fetchWorkflowInfoWithKey(apiKey: string): Promise<{
     try {
       paramsData = JSON.parse(paramsDataText) as DifyParametersResponse;
     } catch (parseError) {
-      console.error("Dify Workflow parameters JSON parse error:", parseError);
-      throw new Error(`Failed to parse /parameters API response: ${parseError}`);
+      handleParseError(parseError, "/parameters");
     }
 
     return { infoData, paramsData };
   } catch (error) {
-    console.error("Dify Workflow API call error:", error);
+    console.error(`Dify Workflow API call error for API Key ${maskApiKey(apiKey)}:`, error);
     if (error instanceof Error) {
-      console.error("Error stack:", error.stack);
+      console.error(`Error stack: ${error.stack}`);
     }
     throw error;
   }
@@ -88,29 +106,36 @@ export async function fetchWorkflowInfo(): Promise<Array<{
   infoData: DifyInfoResponse, 
   paramsData: DifyParametersResponse
 }>> {
-  if (DIFY_API_KEYS.length === 0) {
-    console.error("No API keys found. Please set either DIFY_API_KEY or DIFY_API_KEYS environment variable.");
-    process.exit(1);
-  }
+  // 設定を検証
+  AppConfig.validateStrict();
 
   const results = [];
+  let successCount = 0;
+  let failCount = 0;
   
-  for (const apiKey of DIFY_API_KEYS) {
+  for (const apiKey of AppConfig.API_KEYS) {
     try {
       const result = await fetchWorkflowInfoWithKey(apiKey);
+      
+      // Store the workflow name and API key in the map
+      const workflowName = result.infoData.name || "dify-workflow";
+      workflowApiKeyMap.set(workflowName, apiKey);
+      
       results.push({
         apiKey,
         infoData: result.infoData,
         paramsData: result.paramsData
       });
+      
+      successCount++;
     } catch (error) {
-      console.error(`Error fetching workflow info for API key ${apiKey.substring(0, 8)}...`, error);
+      console.error(`Error fetching workflow info for API key ${maskApiKey(apiKey)}:`, error);
+      failCount++;
     }
   }
-
+  
   if (results.length === 0) {
-    console.error("Failed to fetch workflow info for any of the provided API keys");
-    process.exit(1);
+    handleConfigError("Failed to fetch workflow info for any of the provided API keys");
   }
 
   return results;
@@ -118,13 +143,17 @@ export async function fetchWorkflowInfo(): Promise<Array<{
 
 // Function to execute Dify Workflow API with specific API key
 export async function callDifyWorkflowWithKey(apiKey: string, params: Record<string, any>): Promise<DifyWorkflowResponse> {
-  if (!DIFY_BASE_URL) {
-    console.error("Environment variable DIFY_BASE_URL is not set");
-    process.exit(1);
+  // 設定を検証
+  const baseUrl = AppConfig.BASE_URL;
+  if (!baseUrl) {
+    handleConfigError("Environment variable DIFY_BASE_URL is not set");
   }
   
+  // API呼び出し設定を取得
+  const apiConfig = AppConfig.getApiRequestConfig();
+  
   try {
-    const response = await fetch(`${DIFY_BASE_URL}/workflows/run`, {
+    const response = await fetch(`${baseUrl}/workflows/run`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
@@ -132,8 +161,8 @@ export async function callDifyWorkflowWithKey(apiKey: string, params: Record<str
       },
       body: JSON.stringify({
         inputs: params,
-        response_mode: "blocking",
-        user: "test-abc"
+        response_mode: apiConfig.responseMode,
+        user: apiConfig.userId
       })
     });
     
@@ -141,26 +170,49 @@ export async function callDifyWorkflowWithKey(apiKey: string, params: Record<str
       const errorText = await response.text().catch(() => "Could not retrieve response text");
       console.error(`Workflow execution error: ${response.status} ${response.statusText}`);
       console.error(`Error response: ${errorText}`);
-      throw new Error(`Workflow execution error: ${response.status} ${response.statusText} ${errorText} ${params}`);
+      console.error(`Parameters: ${JSON.stringify(params)}`);
+      console.error(`API Key (masked): ${maskApiKey(apiKey)}`);
+      
+      throw new Error(`Workflow execution error: ${response.status} ${response.statusText}`);
     }
     
-    const result = await response.json() as DifyWorkflowResponse;
+    const resultText = await response.text();
+    let result: DifyWorkflowResponse;
+    
+    try {
+      result = JSON.parse(resultText) as DifyWorkflowResponse;
+    } catch (parseError) {
+      console.error("Failed to parse workflow execution response:", parseError);
+      console.error("Response text:", resultText);
+      throw new Error(`Failed to parse workflow execution response: ${parseError}`);
+    }
     
     return result;
   } catch (error) {
-    console.error("Error during workflow execution:", error);
+    console.error(`Error during workflow execution with API key ${maskApiKey(apiKey)}:`, error);
+    if (error instanceof Error) {
+      console.error(`Error stack: ${error.stack}`);
+    }
+    console.error(`Parameters: ${JSON.stringify(params)}`);
     throw error;
   }
 }
 
 // For API compatibility with previous implementation
 export async function callDifyWorkflow(toolName: string, params: Record<string, any>): Promise<DifyWorkflowResponse> {
-  // Get the API key based on the tool name
-  const apiKeyIndex = parseInt(toolName.split('-')[1]) - 1;
-  if (isNaN(apiKeyIndex) || apiKeyIndex < 0 || apiKeyIndex >= DIFY_API_KEYS.length) {
-    throw new Error(`Invalid tool name: ${toolName}. Could not determine which API key to use.`);
+  // Extract the base workflow name without the index suffix
+  const workflowName = toolName.split('-')[0];
+  
+  // Get the API key from the map
+  const apiKey = workflowApiKeyMap.get(workflowName);
+  
+  if (!apiKey) {
+    const error = new Error(`No API key found for workflow: '${workflowName}'`);
+    console.error(error.message);
+    console.error(`Available workflows: ${Array.from(workflowApiKeyMap.keys()).join(', ')}`);
+    console.error(`Parameters: ${JSON.stringify(params)}`);
+    throw error;
   }
   
-  const apiKey = DIFY_API_KEYS[apiKeyIndex];
   return callDifyWorkflowWithKey(apiKey, params);
 } 

@@ -5,7 +5,7 @@ import {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { fetchWorkflowInfo } from "./dify/api.js";
-import { workflowApiKeyMap } from "./config.js";
+import { workflowApiKeyMap, AppConfig, handleConfigError } from "./config.js";
 import { convertDifyWorkflowToMCPTools } from "./dify/converter.js";
 import { callDifyWorkflowWithKey } from "./dify/api.js";
 
@@ -48,6 +48,9 @@ function handleToolExecutionError(error: unknown, toolName: string, params: Reco
 
 // Server setup and initialization
 export async function setupServer() {
+  // 設定を検証
+  AppConfig.validateStrict();
+  
   // First, retrieve Dify Workflow information
   try {
     const workflowDataList = await fetchWorkflowInfo();
@@ -62,10 +65,8 @@ export async function setupServer() {
     handleInitializationError(error);
   }
   
-  const server = new Server({
-    name: "dify-workflow-mcp-server",
-    version: "1.0.0"
-  }, {
+  const serverConfig = AppConfig.getServerConfig();
+  const server = new Server(serverConfig, {
     capabilities: {
       tools: {
         enabled: true

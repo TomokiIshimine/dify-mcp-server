@@ -1,14 +1,6 @@
 import fetch, { Response as FetchResponse } from "node-fetch";
 import { DifyInfoResponse, DifyParametersResponse, DifyWorkflowResponse } from "../types.js";
-import { DIFY_BASE_URL, DIFY_API_KEYS, workflowApiKeyMap, validateConfig } from "../config.js";
-
-/**
- * 設定エラーのハンドリング関数
- */
-function handleConfigError(message: string): never {
-  console.error(`Configuration error: ${message}`);
-  process.exit(1);
-}
+import { workflowApiKeyMap, AppConfig, handleConfigError } from "../config.js";
 
 /**
  * API レスポンスエラーのハンドリング関数
@@ -49,13 +41,15 @@ export async function fetchWorkflowInfoWithKey(apiKey: string): Promise<{
   infoData: DifyInfoResponse, 
   paramsData: DifyParametersResponse
 }> {
-  if (!DIFY_BASE_URL) {
+  // 設定を検証
+  const baseUrl = AppConfig.BASE_URL;
+  if (!baseUrl) {
     handleConfigError("Environment variable DIFY_BASE_URL is not set");
   }
 
   try {
     // Fetch workflow info
-    const infoResponse = await fetch(`${DIFY_BASE_URL}/info`, {
+    const infoResponse = await fetch(`${baseUrl}/info`, {
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json"
@@ -76,7 +70,7 @@ export async function fetchWorkflowInfoWithKey(apiKey: string): Promise<{
     }
 
     // Fetch workflow parameters
-    const paramsResponse = await fetch(`${DIFY_BASE_URL}/parameters`, {
+    const paramsResponse = await fetch(`${baseUrl}/parameters`, {
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json"
@@ -112,16 +106,14 @@ export async function fetchWorkflowInfo(): Promise<Array<{
   infoData: DifyInfoResponse, 
   paramsData: DifyParametersResponse
 }>> {
-  // Validate configuration before attempting to fetch workflow info
-  if (!validateConfig()) {
-    handleConfigError("Invalid configuration. Please check environment variables.");
-  }
+  // 設定を検証
+  AppConfig.validateStrict();
 
   const results = [];
   let successCount = 0;
   let failCount = 0;
   
-  for (const apiKey of DIFY_API_KEYS) {
+  for (const apiKey of AppConfig.API_KEYS) {
     try {
       const result = await fetchWorkflowInfoWithKey(apiKey);
       
@@ -141,7 +133,6 @@ export async function fetchWorkflowInfo(): Promise<Array<{
       failCount++;
     }
   }
-
   
   if (results.length === 0) {
     handleConfigError("Failed to fetch workflow info for any of the provided API keys");
@@ -152,12 +143,17 @@ export async function fetchWorkflowInfo(): Promise<Array<{
 
 // Function to execute Dify Workflow API with specific API key
 export async function callDifyWorkflowWithKey(apiKey: string, params: Record<string, any>): Promise<DifyWorkflowResponse> {
-  if (!DIFY_BASE_URL) {
+  // 設定を検証
+  const baseUrl = AppConfig.BASE_URL;
+  if (!baseUrl) {
     handleConfigError("Environment variable DIFY_BASE_URL is not set");
   }
   
+  // API呼び出し設定を取得
+  const apiConfig = AppConfig.getApiRequestConfig();
+  
   try {
-    const response = await fetch(`${DIFY_BASE_URL}/workflows/run`, {
+    const response = await fetch(`${baseUrl}/workflows/run`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
@@ -165,8 +161,8 @@ export async function callDifyWorkflowWithKey(apiKey: string, params: Record<str
       },
       body: JSON.stringify({
         inputs: params,
-        response_mode: "blocking",
-        user: "test-abc"
+        response_mode: apiConfig.responseMode,
+        user: apiConfig.userId
       })
     });
     

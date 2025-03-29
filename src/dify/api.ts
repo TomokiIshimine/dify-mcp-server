@@ -11,6 +11,9 @@ if (DIFY_API_KEY && DIFY_API_KEYS.length === 0) {
   DIFY_API_KEYS.push(DIFY_API_KEY);
 }
 
+// Map to store the mapping between workflow names and API keys
+export const workflowApiKeyMap = new Map<string, string>();
+
 // Function to retrieve Dify workflow information for a specific API key
 export async function fetchWorkflowInfoWithKey(apiKey: string): Promise<{
   infoData: DifyInfoResponse, 
@@ -98,6 +101,11 @@ export async function fetchWorkflowInfo(): Promise<Array<{
   for (const apiKey of DIFY_API_KEYS) {
     try {
       const result = await fetchWorkflowInfoWithKey(apiKey);
+      
+      // Store the workflow name and API key in the map
+      const workflowName = result.infoData.name || "dify-workflow";
+      workflowApiKeyMap.set(workflowName, apiKey);
+      
       results.push({
         apiKey,
         infoData: result.infoData,
@@ -155,12 +163,15 @@ export async function callDifyWorkflowWithKey(apiKey: string, params: Record<str
 
 // For API compatibility with previous implementation
 export async function callDifyWorkflow(toolName: string, params: Record<string, any>): Promise<DifyWorkflowResponse> {
-  // Get the API key based on the tool name
-  const apiKeyIndex = parseInt(toolName.split('-')[1]) - 1;
-  if (isNaN(apiKeyIndex) || apiKeyIndex < 0 || apiKeyIndex >= DIFY_API_KEYS.length) {
-    throw new Error(`Invalid tool name: ${toolName}. Could not determine which API key to use.`);
+  // Extract the base workflow name without the index suffix
+  const workflowName = toolName.split('-')[0];
+  
+  // Get the API key from the map
+  const apiKey = workflowApiKeyMap.get(workflowName);
+  
+  if (!apiKey) {
+    throw new Error(`No API key found for workflow: ${workflowName}`);
   }
   
-  const apiKey = DIFY_API_KEYS[apiKeyIndex];
   return callDifyWorkflowWithKey(apiKey, params);
 } 

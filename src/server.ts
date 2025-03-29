@@ -4,9 +4,9 @@ import {
   CallToolRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { fetchWorkflowInfo } from "./dify/api.js";
+import { fetchWorkflowInfo, workflowApiKeyMap } from "./dify/api.js";
 import { convertDifyWorkflowToMCPTools } from "./dify/converter.js";
-import { callDifyWorkflow } from "./dify/api.js";
+import { callDifyWorkflowWithKey } from "./dify/api.js";
 
 // Variables to store Dify Workflow API information
 let workflowTools: Tool[] = [];
@@ -19,7 +19,7 @@ export async function setupServer() {
     // Convert Dify Workflow to MCP tool definition
     workflowTools = convertDifyWorkflowToMCPTools(workflowDataList);
     
-    console.log(`Successfully loaded ${workflowTools.length} tools from ${workflowDataList.length} API keys`);
+    console.log(`Initialized ${workflowTools.length} tools from ${workflowApiKeyMap.size} workflow(s)`);
   } catch (error) {
     console.error("Failed to retrieve or convert Dify Workflow information:", error);
     process.exit(1);
@@ -53,8 +53,15 @@ export async function setupServer() {
         throw new Error(`Workflow parameters are undefined ${JSON.stringify(request)}`);
       }
 
-      // Call Dify Workflow with the tool name (which is used to determine which API key to use)
-      const result = await callDifyWorkflow(toolName, workflowParams);
+      // Get the API key directly from the mapping
+      const apiKey = workflowApiKeyMap.get(toolName);
+      
+      if (!apiKey) {
+        throw new Error(`No API key found for workflow: ${toolName}`);
+      }
+      
+      // Call Dify Workflow directly with the API key
+      const result = await callDifyWorkflowWithKey(apiKey, workflowParams);
       
       // Extract outputs field if available, otherwise use the original response
       const outputContent = result.data?.outputs || result.result || result;

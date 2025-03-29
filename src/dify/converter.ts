@@ -8,17 +8,29 @@ export function convertDifyWorkflowToMCPTools(workflowDataList: Array<{
   paramsData: DifyParametersResponse
 }>): Tool[] {
   const tools: Tool[] = [];
+  const workflowNames = new Set<string>();
   
   // Process each API key and its corresponding workflow data
-  workflowDataList.forEach((workflowData, index) => {
+  workflowDataList.forEach((workflowData) => {
     const { infoData, paramsData } = workflowData;
     
     // Extract necessary information from infoData and paramsData to create tool definitions
     if (infoData && paramsData) {
-      // Use workflow name as tool name with index for uniqueness
-      const toolNumber = index + 1;
-      const baseName = infoData.name || "dify-workflow";
-      const toolName = `${baseName}-${toolNumber}`;
+      // Use workflow name as tool name
+      let baseName = infoData.name || "dify-workflow";
+      let toolName = baseName;
+      
+      // If we already have a workflow with this name, make it unique
+      if (workflowNames.has(toolName)) {
+        let counter = 1;
+        while (workflowNames.has(`${baseName}-${counter}`)) {
+          counter++;
+        }
+        toolName = `${baseName}-${counter}`;
+      }
+      
+      // Add to set of used names
+      workflowNames.add(toolName);
       
       // Example: Build inputSchema from parameter information
       const properties: Record<string, any> = {};
@@ -129,7 +141,7 @@ export function convertDifyWorkflowToMCPTools(workflowDataList: Array<{
       
       tools.push({
         name: toolName,
-        description: `${infoData.description || "Execute Dify Workflow"} (Instance ${toolNumber})`,
+        description: infoData.description || "Execute Dify Workflow",
         inputSchema: {
           type: "object",
           properties: properties,

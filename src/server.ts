@@ -4,7 +4,8 @@ import {
   CallToolRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { fetchWorkflowInfo, workflowApiKeyMap } from "./dify/api.js";
+import { fetchWorkflowInfo } from "./dify/api.js";
+import { workflowApiKeyMap } from "./config.js";
 import { convertDifyWorkflowToMCPTools } from "./dify/converter.js";
 import { callDifyWorkflowWithKey } from "./dify/api.js";
 

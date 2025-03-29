@@ -1,18 +1,6 @@
 import fetch from "node-fetch";
 import { DifyInfoResponse, DifyParametersResponse, DifyWorkflowResponse } from "../types.js";
-
-// Get Dify configuration from environment variables
-const DIFY_BASE_URL = process.env.DIFY_BASE_URL;
-const DIFY_API_KEYS = process.env.DIFY_API_KEYS ? process.env.DIFY_API_KEYS.split(',').map(key => key.trim()) : [];
-
-// For backward compatibility
-const DIFY_API_KEY = process.env.DIFY_API_KEY;
-if (DIFY_API_KEY && DIFY_API_KEYS.length === 0) {
-  DIFY_API_KEYS.push(DIFY_API_KEY);
-}
-
-// Map to store the mapping between workflow names and API keys
-export const workflowApiKeyMap = new Map<string, string>();
+import { DIFY_BASE_URL, DIFY_API_KEYS, workflowApiKeyMap } from "../config.js";
 
 // Function to retrieve Dify workflow information for a specific API key
 export async function fetchWorkflowInfoWithKey(apiKey: string): Promise<{

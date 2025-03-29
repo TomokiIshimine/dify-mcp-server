@@ -15,9 +15,11 @@ let workflowTools: Tool[] = [];
 export async function setupServer() {
   // First, retrieve Dify Workflow information
   try {
-    const { infoData, paramsData } = await fetchWorkflowInfo();
+    const workflowDataList = await fetchWorkflowInfo();
     // Convert Dify Workflow to MCP tool definition
-    workflowTools = convertDifyWorkflowToMCPTools(infoData, paramsData);
+    workflowTools = convertDifyWorkflowToMCPTools(workflowDataList);
+    
+    console.log(`Successfully loaded ${workflowTools.length} tools from ${workflowDataList.length} API keys`);
   } catch (error) {
     console.error("Failed to retrieve or convert Dify Workflow information:", error);
     process.exit(1);
@@ -42,7 +44,7 @@ export async function setupServer() {
   // Tool execution request handler
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
-      // Execute Dify Workflow
+      const toolName = request.params.name;
       const workflowParams = request.params.arguments as Record<string, any> | undefined;
 
       // Check if parameters are not undefined
@@ -51,7 +53,8 @@ export async function setupServer() {
         throw new Error(`Workflow parameters are undefined ${JSON.stringify(request)}`);
       }
 
-      const result = await callDifyWorkflow(workflowParams);
+      // Call Dify Workflow with the tool name (which is used to determine which API key to use)
+      const result = await callDifyWorkflow(toolName, workflowParams);
       
       // Extract outputs field if available, otherwise use the original response
       const outputContent = result.data?.outputs || result.result || result;

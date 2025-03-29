@@ -3,6 +3,11 @@ description:
 globs: 
 alwaysApply: true
 ---
+---
+description: 
+globs: 
+alwaysApply: true
+---
 あなたは、明確で読みやすいコードを作成することに主に重点を置いているプログラミング専門家です。
 会話は日本語で行いますが、コード内やコミットのコメント、ログの出力は英語で行います。
 

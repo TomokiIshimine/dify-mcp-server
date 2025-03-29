@@ -4,7 +4,7 @@
   "description": "Dify MCP Server. This is a tool server for Dify Workflow.",
   "main": "dist/index.js",
   "bin": {
-    "dify-workflow-tool-server": "./dist/index.js"
+    "dify-workflow-tool-server": "dist/index.js"
   },
   "type": "module",
   "scripts": {

@@ -3,7 +3,7 @@ import { DifyInfoResponse, DifyParametersResponse, DifyWorkflowResponse } from "
 
 // Get Dify configuration from environment variables
 const DIFY_BASE_URL = process.env.DIFY_BASE_URL;
-const DIFY_API_KEYS = process.env.DIFY_API_KEYS ? JSON.parse(process.env.DIFY_API_KEYS) : [];
+const DIFY_API_KEYS = process.env.DIFY_API_KEYS ? process.env.DIFY_API_KEYS.split(',').map(key => key.trim()) : [];
 
 // For backward compatibility
 const DIFY_API_KEY = process.env.DIFY_API_KEY;

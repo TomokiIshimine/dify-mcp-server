@@ -51,11 +51,7 @@ You can now configure multiple Dify API keys, which will create multiple tools (
       "args": ["@tonlab/dify-mcp-server"],
       "env": {
         "DIFY_BASE_URL": "https://api.dify.ai/v1",
-        "DIFY_API_KEYS": [
-          "app-FirstAPIKeyHere",
-          "app-SecondAPIKeyHere",
-          "app-ThirdAPIKeyHere"
-        ]
+        "DIFY_API_KEYS": "app-FirstAPIKeyHere,app-SecondAPIKeyHere,app-ThirdAPIKeyHere"
       }
     }
   }

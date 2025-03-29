@@ -1,5 +1,6 @@
 import { DifyInfoResponse, DifyParametersResponse, DifyInputField } from "../types.js";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { WorkflowData } from "./service.js";
 
 /**
  * ユーザー入力フォーム形式からパラメータプロパティを抽出する関数
@@ -165,23 +166,13 @@ function getUniqueWorkflowName(baseName: string, workflowNames: Set<string>): st
 /**
  * Difyワークフローデータを MCP ツール形式に変換する関数
  */
-export function convertDifyWorkflowToMCPTools(workflowDataList: Array<{
-  apiKey: string, 
-  infoData: DifyInfoResponse, 
-  paramsData: DifyParametersResponse
-}>): Tool[] {
+export function convertDifyWorkflowToMCPTools(workflowDataList: WorkflowData[]): Tool[] {
   const tools: Tool[] = [];
   const workflowNames = new Set<string>();
   
   // Process each API key and its corresponding workflow data
   workflowDataList.forEach((workflowData) => {
     const { infoData, paramsData } = workflowData;
-    
-    // Extract necessary information from infoData and paramsData to create tool definitions
-    if (!infoData || !paramsData) {
-      console.error("Error: infoData or paramsData is missing for one of the API keys");
-      return;
-    }
     
     // Use workflow name as tool name
     const baseName = infoData.name || "dify-workflow";

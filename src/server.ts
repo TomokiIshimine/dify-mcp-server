@@ -2,15 +2,9 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { 
   ListToolsRequestSchema,
   CallToolRequestSchema,
-  Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { fetchWorkflowInfo } from "./dify/api.js";
-import { workflowApiKeyMap, AppConfig, handleConfigError } from "./config.js";
-import { convertDifyWorkflowToMCPTools } from "./dify/converter.js";
-import { callDifyWorkflowWithKey } from "./dify/api.js";
-
-// Variables to store Dify Workflow API information
-let workflowTools: Tool[] = [];
+import { appConfig } from "./config.js";
+import { getWorkflowManager } from "./dify/api.js";
 
 /**
  * サーバー初期化エラーハンドリング関数
@@ -29,43 +23,26 @@ function handleInitializationError(error: unknown): never {
 }
 
 /**
- * ツール実行中のエラーハンドリング関数
+ * MCP Serverのセットアップと初期化
  */
-function handleToolExecutionError(error: unknown, toolName: string, params: Record<string, any> | undefined): Error {
-  console.error(`Error executing tool '${toolName}':`);
-  
-  if (error instanceof Error) {
-    console.error(`Error message: ${error.message}`);
-    console.error(`Error stack: ${error.stack}`);
-    console.error(`Parameters: ${JSON.stringify(params)}`);
-    return error;
-  } else {
-    const genericError = new Error(`Unknown error occurred while executing tool '${toolName}': ${error}`);
-    console.error(`Parameters: ${JSON.stringify(params)}`);
-    return genericError;
-  }
-}
-
-// Server setup and initialization
 export async function setupServer() {
   // 設定を検証
-  AppConfig.validateStrict();
+  appConfig.validateStrict();
   
-  // First, retrieve Dify Workflow information
+  // ワークフローマネージャーの取得
+  const workflowManager = getWorkflowManager();
+  
   try {
-    const workflowDataList = await fetchWorkflowInfo();
-    // Convert Dify Workflow to MCP tool definition
-    workflowTools = convertDifyWorkflowToMCPTools(workflowDataList);
-    
-    if (workflowTools.length === 0) {
-      throw new Error("No workflow tools were generated. Check Dify API keys and workflows configuration.");
-    }
-    
+    // ワークフロー情報を初期化
+    await workflowManager.initialize();
   } catch (error) {
     handleInitializationError(error);
   }
   
-  const serverConfig = AppConfig.getServerConfig();
+  // サーバー設定の取得
+  const serverConfig = appConfig.getServerConfig();
+  
+  // サーバーの作成
   const server = new Server(serverConfig, {
     capabilities: {
       tools: {
@@ -74,34 +51,27 @@ export async function setupServer() {
     }
   });
   
-  // Tool list request handler
+  // ツール一覧リクエストハンドラー
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return { tools: workflowTools };
+    const tools = workflowManager.getTools();
+    return { tools };
   });
   
-  // Tool execution request handler
+  // ツール実行リクエストハンドラー
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const toolName = request.params.name;
     const workflowParams = request.params.arguments as Record<string, any> | undefined;
     
+    // パラメータが未定義の場合はエラー
+    if (workflowParams === undefined) {
+      const error = new Error(`Workflow parameters are undefined for tool '${toolName}'. Request: ${JSON.stringify(request)}`);
+      console.error(error.message);
+      throw error;
+    }
+    
     try {
-      // Check if parameters are not undefined
-      if (workflowParams === undefined) {
-        throw new Error(`Workflow parameters are undefined for tool '${toolName}'. Request: ${JSON.stringify(request)}`);
-      }
-
-      // Get the API key directly from the mapping
-      const apiKey = workflowApiKeyMap.get(toolName);
-      
-      if (!apiKey) {
-        throw new Error(`No API key found for workflow: '${toolName}'`);
-      }
-      
-      // Call Dify Workflow directly with the API key
-      const result = await callDifyWorkflowWithKey(apiKey, workflowParams);
-      
-      // Extract outputs field if available, otherwise use the original response
-      const outputContent = result.data?.outputs || result.result || result;
+      // ワークフローの実行
+      const outputContent = await workflowManager.executeWorkflow(toolName, workflowParams);
       
       return {
         content: [
@@ -112,7 +82,16 @@ export async function setupServer() {
         ]
       };
     } catch (error) {
-      throw handleToolExecutionError(error, toolName, workflowParams);
+      console.error(`Error executing tool '${toolName}':`, error);
+      
+      if (error instanceof Error) {
+        console.error(`Parameters: ${JSON.stringify(workflowParams)}`);
+        throw error;
+      } else {
+        const genericError = new Error(`Unknown error occurred while executing tool '${toolName}': ${error}`);
+        console.error(`Parameters: ${JSON.stringify(workflowParams)}`);
+        throw genericError;
+      }
     }
   });
   

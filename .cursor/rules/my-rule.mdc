@@ -8,6 +8,11 @@ description:
 globs: 
 alwaysApply: true
 ---
+---
+description: 
+globs: 
+alwaysApply: true
+---
 You are a programming professional whose primary focus is on creating clear, readable code.
 Comments and log output in code and on commits will be in English.
 

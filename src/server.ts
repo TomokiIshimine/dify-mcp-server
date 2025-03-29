@@ -20,7 +20,6 @@ export async function setupServer() {
     // Convert Dify Workflow to MCP tool definition
     workflowTools = convertDifyWorkflowToMCPTools(workflowDataList);
     
-    console.log(`Initialized ${workflowTools.length} tools from ${workflowApiKeyMap.size} workflow(s)`);
   } catch (error) {
     console.error("Failed to retrieve or convert Dify Workflow information:", error);
     process.exit(1);

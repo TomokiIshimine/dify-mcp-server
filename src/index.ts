@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { setupServer } from "./server.js";
-import { AppConfig } from "./config.js";
+import { appConfig } from "./config.js";
 
-// Main function
+/**
+ * メイン関数
+ */
 async function main() {
   try {
     // 設定を検証（この検証はsetupServerでも行われるが、早期に失敗するために二重に行う）
-    AppConfig.validateStrict();
+    appConfig.validateStrict();
     
     const server = await setupServer();
     const transport = new StdioServerTransport();

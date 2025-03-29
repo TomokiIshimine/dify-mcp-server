@@ -4,14 +4,60 @@ import { convertDifyWorkflowToMCPTools } from "./converter.js";
 import { DifyWorkflowResponse } from "../types.js";
 
 /**
+ * ロガーインターフェース
+ */
+export interface Logger {
+  error(message: string, ...args: any[]): void;
+}
+
+/**
+ * デフォルトロガー実装
+ */
+export class ConsoleLogger implements Logger {
+  error(message: string, ...args: any[]): void {
+    console.error(message, ...args);
+  }
+}
+
+/**
+ * ワークフローツール変換インターフェース
+ */
+export interface WorkflowConverter {
+  convert(workflowDataList: WorkflowData[]): Tool[];
+}
+
+/**
+ * デフォルトのワークフローツール変換実装
+ */
+export class DefaultWorkflowConverter implements WorkflowConverter {
+  convert(workflowDataList: WorkflowData[]): Tool[] {
+    return convertDifyWorkflowToMCPTools(workflowDataList);
+  }
+}
+
+/**
  * Difyワークフロー管理クラス
  */
 export class WorkflowManager {
   private readonly difyService: DifyService;
+  private readonly logger: Logger;
+  private readonly converter: WorkflowConverter;
   private workflowTools: Tool[] = [];
   
-  constructor(difyService: DifyService) {
+  /**
+   * コンストラクタ
+   * @param difyService Difyサービス
+   * @param logger ロガー（オプション）
+   * @param converter ワークフロー変換機能（オプション）
+   */
+  constructor(
+    difyService: DifyService, 
+    logger: Logger = new ConsoleLogger(),
+    converter: WorkflowConverter = new DefaultWorkflowConverter()
+  ) {
     this.difyService = difyService;
+    this.logger = logger;
+    this.converter = converter;
   }
   
   /**
@@ -20,27 +66,54 @@ export class WorkflowManager {
   async initialize(): Promise<void> {
     try {
       // ワークフロー情報の取得
-      const workflowDataList = await this.difyService.fetchAllWorkflowInfo();
+      const workflowDataList = await this.fetchWorkflowData();
       
       // Dify ワークフローを MCP ツール定義に変換
-      this.workflowTools = convertDifyWorkflowToMCPTools(workflowDataList);
+      this.workflowTools = this.convertToTools(workflowDataList);
       
-      if (this.workflowTools.length === 0) {
-        throw new Error("No workflow tools were generated. Check Dify API keys and workflows configuration.");
-      }
+      this.validateTools();
       
-      console.error(`Successfully initialized ${this.workflowTools.length} workflow tools.`);
+      this.logger.error(`Successfully initialized ${this.workflowTools.length} workflow tools.`);
     } catch (error) {
-      console.error("Failed to retrieve or convert Dify Workflow information:");
-      
-      if (error instanceof Error) {
-        console.error(`Error message: ${error.message}`);
-        console.error(`Error stack: ${error.stack}`);
-      } else {
-        console.error(`Unknown error type: ${error}`);
-      }
-      
+      this.handleInitializationError(error);
       throw error;
+    }
+  }
+  
+  /**
+   * ワークフロー情報を取得する（テスト用に分離）
+   */
+  protected async fetchWorkflowData(): Promise<WorkflowData[]> {
+    return this.difyService.fetchAllWorkflowInfo();
+  }
+  
+  /**
+   * ワークフローデータをツールに変換する（テスト用に分離）
+   */
+  protected convertToTools(workflowDataList: WorkflowData[]): Tool[] {
+    return this.converter.convert(workflowDataList);
+  }
+  
+  /**
+   * ツールの検証を行う（テスト用に分離）
+   */
+  protected validateTools(): void {
+    if (this.workflowTools.length === 0) {
+      throw new Error("No workflow tools were generated. Check Dify API keys and workflows configuration.");
+    }
+  }
+  
+  /**
+   * 初期化エラーを処理する（テスト用に分離）
+   */
+  protected handleInitializationError(error: unknown): void {
+    this.logger.error("Failed to retrieve or convert Dify Workflow information:");
+    
+    if (error instanceof Error) {
+      this.logger.error(`Error message: ${error.message}`);
+      this.logger.error(`Error stack: ${error.stack}`);
+    } else {
+      this.logger.error(`Unknown error type: ${error}`);
     }
   }
   
@@ -56,31 +129,51 @@ export class WorkflowManager {
    */
   async executeWorkflow(toolName: string, params: Record<string, any>): Promise<any> {
     try {
-      // Dify ワークフローを直接呼び出す
-      const result = await this.difyService.runWorkflow(toolName, params);
-      
-      // outputsフィールドが利用可能な場合はそれを使用し、それ以外の場合はオリジナルのレスポンスを使用
+      const result = await this.runWorkflow(toolName, params);
       return this.extractOutputContent(result);
     } catch (error) {
-      console.error(`Error executing tool '${toolName}':`);
-      
-      if (error instanceof Error) {
-        console.error(`Error message: ${error.message}`);
-        console.error(`Error stack: ${error.stack}`);
-        console.error(`Parameters: ${JSON.stringify(params)}`);
-        throw error;
-      } else {
-        const genericError = new Error(`Unknown error occurred while executing tool '${toolName}': ${error}`);
-        console.error(`Parameters: ${JSON.stringify(params)}`);
-        throw genericError;
-      }
+      this.handleExecutionError(error, toolName, params);
+      throw this.wrapExecutionError(error, toolName);
     }
+  }
+  
+  /**
+   * ワークフローを実行する（テスト用に分離）
+   */
+  protected async runWorkflow(toolName: string, params: Record<string, any>): Promise<DifyWorkflowResponse> {
+    return this.difyService.runWorkflow(toolName, params);
+  }
+  
+  /**
+   * 実行エラーを処理する（テスト用に分離）
+   */
+  protected handleExecutionError(error: unknown, toolName: string, params: Record<string, any>): void {
+    this.logger.error(`Error executing tool '${toolName}':`);
+    
+    if (error instanceof Error) {
+      this.logger.error(`Error message: ${error.message}`);
+      this.logger.error(`Error stack: ${error.stack}`);
+      this.logger.error(`Parameters: ${JSON.stringify(params)}`);
+    } else {
+      this.logger.error(`Unknown error type: ${error}`);
+      this.logger.error(`Parameters: ${JSON.stringify(params)}`);
+    }
+  }
+  
+  /**
+   * 実行エラーをラップする（テスト用に分離）
+   */
+  protected wrapExecutionError(error: unknown, toolName: string): Error {
+    if (error instanceof Error) {
+      return error;
+    }
+    return new Error(`Unknown error occurred while executing tool '${toolName}': ${error}`);
   }
   
   /**
    * レスポンスから出力コンテンツを抽出する
    */
-  private extractOutputContent(result: DifyWorkflowResponse): any {
+  protected extractOutputContent(result: DifyWorkflowResponse): any {
     const outputContent = result.data?.outputs || result.result || result;
     return outputContent;
   }

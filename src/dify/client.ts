@@ -17,6 +17,24 @@ export class ApiError extends Error {
   }
 }
 
+// HTTP通信インターフェース（テスト容易性のため抽象化）
+export interface HttpClient {
+  request(url: string, options: RequestOptions): Promise<HttpResponse>;
+}
+
+export interface RequestOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+export interface HttpResponse {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text(): Promise<string>;
+}
+
 // Dify APIクライアントのインターフェース
 export interface DifyClient {
   fetchInfo(apiKey: string): Promise<DifyInfoResponse>;
@@ -24,12 +42,45 @@ export interface DifyClient {
   runWorkflow(apiKey: string, params: Record<string, any>): Promise<DifyWorkflowResponse>;
 }
 
+// レスポンスパーサーインターフェース
+export interface ResponseParser {
+  parse<T>(text: string): T;
+}
+
+// 標準のレスポンスパーサー実装
+export class JsonResponseParser implements ResponseParser {
+  parse<T>(text: string): T {
+    return JSON.parse(text) as T;
+  }
+}
+
+// 標準のHTTPクライアント実装
+export class FetchHttpClient implements HttpClient {
+  async request(url: string, options: RequestOptions): Promise<HttpResponse> {
+    const response = await fetch(url, options as any);
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      text: async () => response.text()
+    };
+  }
+}
+
 // APIクライアントの実装
 export class DifyApiClient implements DifyClient {
   private readonly config: Config;
+  private readonly httpClient: HttpClient;
+  private readonly responseParser: ResponseParser;
   
-  constructor(config: Config) {
+  constructor(
+    config: Config, 
+    httpClient: HttpClient = new FetchHttpClient(),
+    responseParser: ResponseParser = new JsonResponseParser()
+  ) {
     this.config = config;
+    this.httpClient = httpClient;
+    this.responseParser = responseParser;
   }
   
   // APIキーをマスクする（ログ出力用）
@@ -41,7 +92,7 @@ export class DifyApiClient implements DifyClient {
   }
   
   // レスポンスエラーを処理
-  private async handleApiResponseError(response: FetchResponse, endpoint: string, apiKey: string): Promise<never> {
+  private async handleApiResponseError(response: HttpResponse, endpoint: string, apiKey: string): Promise<never> {
     const errorText = await response.text().catch(() => "Could not retrieve response text");
     console.error(`${endpoint} API error code: ${response.status}`);
     console.error(`${endpoint} API error message: ${response.statusText}`);
@@ -64,17 +115,27 @@ export class DifyApiClient implements DifyClient {
     }
     throw new Error(`Failed to parse ${endpoint} API response: ${error}`);
   }
+
+  // 共通のリクエストヘッダーを生成
+  private createHeaders(apiKey: string): Record<string, string> {
+    return {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    };
+  }
+
+  // APIエンドポイントURLを生成
+  private getEndpointUrl(path: string): string {
+    const baseUrl = this.config.getBaseUrl();
+    return `${baseUrl}${path}`;
+  }
   
   // /info エンドポイントにリクエスト
   async fetchInfo(apiKey: string): Promise<DifyInfoResponse> {
-    const baseUrl = this.config.getBaseUrl();
+    const url = this.getEndpointUrl("/info");
+    const headers = this.createHeaders(apiKey);
     
-    const infoResponse = await fetch(`${baseUrl}/info`, {
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      }
-    });
+    const infoResponse = await this.httpClient.request(url, { headers });
 
     if (!infoResponse.ok) {
       await this.handleApiResponseError(infoResponse, "/info", apiKey);
@@ -83,7 +144,7 @@ export class DifyApiClient implements DifyClient {
     const infoDataText = await infoResponse.text();
     
     try {
-      return JSON.parse(infoDataText) as DifyInfoResponse;
+      return this.responseParser.parse<DifyInfoResponse>(infoDataText);
     } catch (parseError) {
       this.handleParseError(parseError, "/info");
     }
@@ -91,14 +152,10 @@ export class DifyApiClient implements DifyClient {
   
   // /parameters エンドポイントにリクエスト
   async fetchParameters(apiKey: string): Promise<DifyParametersResponse> {
-    const baseUrl = this.config.getBaseUrl();
+    const url = this.getEndpointUrl("/parameters");
+    const headers = this.createHeaders(apiKey);
     
-    const paramsResponse = await fetch(`${baseUrl}/parameters`, {
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      }
-    });
+    const paramsResponse = await this.httpClient.request(url, { headers });
 
     if (!paramsResponse.ok) {
       await this.handleApiResponseError(paramsResponse, "/parameters", apiKey);
@@ -107,7 +164,7 @@ export class DifyApiClient implements DifyClient {
     const paramsDataText = await paramsResponse.text();
     
     try {
-      return JSON.parse(paramsDataText) as DifyParametersResponse;
+      return this.responseParser.parse<DifyParametersResponse>(paramsDataText);
     } catch (parseError) {
       this.handleParseError(parseError, "/parameters");
     }
@@ -115,20 +172,20 @@ export class DifyApiClient implements DifyClient {
   
   // /workflows/run エンドポイントにリクエスト
   async runWorkflow(apiKey: string, params: Record<string, any>): Promise<DifyWorkflowResponse> {
-    const baseUrl = this.config.getBaseUrl();
+    const url = this.getEndpointUrl("/workflows/run");
+    const headers = this.createHeaders(apiKey);
     const apiConfig = this.config.getApiRequestConfig();
     
-    const response = await fetch(`${baseUrl}/workflows/run`, {
+    const body = JSON.stringify({
+      inputs: params,
+      response_mode: apiConfig.responseMode,
+      user: apiConfig.userId
+    });
+    
+    const response = await this.httpClient.request(url, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        inputs: params,
-        response_mode: apiConfig.responseMode,
-        user: apiConfig.userId
-      })
+      headers,
+      body
     });
     
     if (!response.ok) {
@@ -138,7 +195,7 @@ export class DifyApiClient implements DifyClient {
     const resultText = await response.text();
     
     try {
-      return JSON.parse(resultText) as DifyWorkflowResponse;
+      return this.responseParser.parse<DifyWorkflowResponse>(resultText);
     } catch (parseError) {
       console.error("Failed to parse workflow execution response:", parseError);
       console.error("Response text:", resultText);

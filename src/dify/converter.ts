@@ -3,46 +3,71 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { WorkflowData } from "./service.js";
 
 /**
+ * パラメータプロパティの型定義
+ */
+export interface ParameterProperty {
+  type: string;
+  description: string;
+}
+
+/**
+ * パラメータ抽出結果の型定義
+ */
+export interface ExtractedProperties {
+  properties: Record<string, ParameterProperty>;
+  required: string[];
+}
+
+/**
+ * シンプルなパラメータ定義の型
+ */
+export interface ParameterDefinition {
+  name: string;
+  type?: string;
+  description?: string;
+  required?: boolean;
+}
+
+/**
+ * ワークフロー変換のログハンドラーインターフェース
+ */
+export interface LogHandler {
+  error(message: string, ...args: any[]): void;
+}
+
+/**
+ * デフォルトのログハンドラー
+ */
+export class DefaultLogHandler implements LogHandler {
+  error(message: string, ...args: any[]): void {
+    console.error(message, ...args);
+  }
+}
+
+/**
  * ユーザー入力フォーム形式からパラメータプロパティを抽出する関数
  */
-function extractPropertiesFromUserInputForm(
+export function extractPropertiesFromUserInputForm(
   userInputForm: any[], 
-  properties: Record<string, any>, 
-  required: string[]
-): void {
+  logHandler: LogHandler = new DefaultLogHandler()
+): ExtractedProperties {
+  const properties: Record<string, ParameterProperty> = {};
+  const required: string[] = [];
+
   userInputForm.forEach((component, componentIndex) => {
     // Process each component
     for (const [componentType, field] of Object.entries(component)) {
       const typedField = field as DifyInputField;
       
       if (!typedField.variable) {
-        console.error(`Warning: user_input_form[${componentIndex}] has no variable name:`, JSON.stringify(component, null, 2));
+        logHandler.error(`Warning: user_input_form[${componentIndex}] has no variable name:`, JSON.stringify(component, null, 2));
         continue;
       }
       
       const paramName = typedField.variable;
       
       // Determine parameter type based on component type
-      let paramType = "string"; // Default is string
-      
-      switch(componentType) {
-        case "select":
-        case "radio":
-          paramType = "string";
-          break;
-        case "checkbox":
-          paramType = "array";
-          break;
-        case "number":
-        case "slider":
-          paramType = "number";
-          break;
-        case "switch":
-          paramType = "boolean";
-          break;
-        default:
-          paramType = "string";
-      }
+      const paramType = determineParameterType(componentType);
       
       properties[paramName] = {
         type: paramType,
@@ -54,17 +79,33 @@ function extractPropertiesFromUserInputForm(
       }
     }
   });
+
+  return { properties, required };
+}
+
+/**
+ * コンポーネントタイプに基づいてパラメータタイプを決定する
+ */
+export function determineParameterType(componentType: string): string {
+  switch(componentType) {
+    case "checkbox":
+      return "array";
+    case "number":
+    case "slider":
+      return "number";
+    case "switch":
+      return "boolean";
+    case "select":
+    case "radio":
+    default:
+      return "string";
+  }
 }
 
 /**
  * オブジェクト形式のパラメータを配列に変換する関数
  */
-function convertParametersObjectToArray(parametersObj: Record<string, any>): Array<{
-  name: string;
-  type?: string;
-  description?: string;
-  required?: boolean;
-}> {
+export function convertParametersObjectToArray(parametersObj: Record<string, any>): ParameterDefinition[] {
   return Object.entries(parametersObj).map(([key, value]) => {
     // Convert to appropriate object if value is not an object
     if (typeof value !== 'object' || value === null) {
@@ -85,14 +126,16 @@ function convertParametersObjectToArray(parametersObj: Record<string, any>): Arr
 /**
  * パラメータ配列からプロパティを抽出する関数
  */
-function extractPropertiesFromParametersArray(
-  parameters: Array<any>, 
-  properties: Record<string, any>, 
-  required: string[]
-): void {
+export function extractPropertiesFromParametersArray(
+  parameters: ParameterDefinition[],
+  logHandler: LogHandler = new DefaultLogHandler()
+): ExtractedProperties {
+  const properties: Record<string, ParameterProperty> = {};
+  const required: string[] = [];
+
   parameters.forEach((param, index) => {
     if (!param.name) {
-      console.error(`Warning: Parameter[${index}] has no name:`, JSON.stringify(param, null, 2));
+      logHandler.error(`Warning: Parameter[${index}] has no name:`, JSON.stringify(param, null, 2));
       return;
     }
     
@@ -105,56 +148,57 @@ function extractPropertiesFromParametersArray(
       required.push(param.name);
     }
   });
+
+  return { properties, required };
 }
 
 /**
  * パラメータからプロパティと必須フィールドを抽出する関数
  */
-function extractPropertiesFromParameters(
-  paramsData: DifyParametersResponse
-): { properties: Record<string, any>; required: string[] } {
-  const properties: Record<string, any> = {};
-  const required: string[] = [];
-  
+export function extractPropertiesFromParameters(
+  paramsData: DifyParametersResponse,
+  logHandler: LogHandler = new DefaultLogHandler()
+): ExtractedProperties {
   // Extract parameters from the new user_input_form format
   if (paramsData.user_input_form && Array.isArray(paramsData.user_input_form)) {
-    extractPropertiesFromUserInputForm(paramsData.user_input_form, properties, required);
+    return extractPropertiesFromUserInputForm(paramsData.user_input_form, logHandler);
   } 
   // For backward compatibility, also support the old parameters format
   else if (paramsData.parameters) {
     // Check the structure of paramsData.parameters
     if (!Array.isArray(paramsData.parameters)) {
-      console.error("Warning: paramsData.parameters is not an array");
+      logHandler.error("Warning: paramsData.parameters is not an array");
       
       // Try to convert to an array if it's an object
       if (typeof paramsData.parameters === 'object') {
         try {
           const paramsArray = convertParametersObjectToArray(paramsData.parameters);
-          extractPropertiesFromParametersArray(paramsArray, properties, required);
+          return extractPropertiesFromParametersArray(paramsArray, logHandler);
         } catch (error) {
-          console.error("Parameter conversion error:", error);
+          logHandler.error("Parameter conversion error:", error);
+          return { properties: {}, required: [] };
         }
       }
+      return { properties: {}, required: [] };
     } else {
       // Normal processing if it's already an array
-      extractPropertiesFromParametersArray(paramsData.parameters, properties, required);
+      return extractPropertiesFromParametersArray(paramsData.parameters, logHandler);
     }
   } else {
-    console.error("Warning: No parameter definition found. Neither user_input_form nor parameters exists.");
+    logHandler.error("Warning: No parameter definition found. Neither user_input_form nor parameters exists.");
+    return { properties: {}, required: [] };
   }
-  
-  return { properties, required };
 }
 
 /**
  * ワークフロー名の一意性を確保する関数
  */
-function getUniqueWorkflowName(baseName: string, workflowNames: Set<string>): string {
+export function getUniqueWorkflowName(baseName: string, existingNames: Set<string>): string {
   let toolName = baseName;
   
-  if (workflowNames.has(toolName)) {
+  if (existingNames.has(toolName)) {
     let counter = 1;
-    while (workflowNames.has(`${baseName}-${counter}`)) {
+    while (existingNames.has(`${baseName}-${counter}`)) {
       counter++;
     }
     toolName = `${baseName}-${counter}`;
@@ -164,35 +208,48 @@ function getUniqueWorkflowName(baseName: string, workflowNames: Set<string>): st
 }
 
 /**
+ * 単一のワークフローデータをMCPツールに変換する
+ */
+export function convertSingleWorkflowToTool(
+  workflowData: WorkflowData,
+  existingNames: Set<string>,
+  logHandler: LogHandler = new DefaultLogHandler()
+): Tool {
+  const { infoData, paramsData } = workflowData;
+  
+  // Use workflow name as tool name
+  const baseName = infoData.name || "dify-workflow";
+  const toolName = getUniqueWorkflowName(baseName, existingNames);
+  
+  // Build inputSchema from parameter information
+  const { properties, required } = extractPropertiesFromParameters(paramsData, logHandler);
+  
+  return {
+    name: toolName,
+    description: infoData.description || "Execute Dify Workflow",
+    inputSchema: {
+      type: "object",
+      properties: properties,
+      required: required
+    }
+  };
+}
+
+/**
  * Difyワークフローデータを MCP ツール形式に変換する関数
  */
-export function convertDifyWorkflowToMCPTools(workflowDataList: WorkflowData[]): Tool[] {
+export function convertDifyWorkflowToMCPTools(
+  workflowDataList: WorkflowData[],
+  logHandler: LogHandler = new DefaultLogHandler()
+): Tool[] {
   const tools: Tool[] = [];
   const workflowNames = new Set<string>();
   
   // Process each API key and its corresponding workflow data
   workflowDataList.forEach((workflowData) => {
-    const { infoData, paramsData } = workflowData;
-    
-    // Use workflow name as tool name
-    const baseName = infoData.name || "dify-workflow";
-    const toolName = getUniqueWorkflowName(baseName, workflowNames);
-    
-    // Add to set of used names
-    workflowNames.add(toolName);
-    
-    // Build inputSchema from parameter information
-    const { properties, required } = extractPropertiesFromParameters(paramsData);
-    
-    tools.push({
-      name: toolName,
-      description: infoData.description || "Execute Dify Workflow",
-      inputSchema: {
-        type: "object",
-        properties: properties,
-        required: required
-      }
-    });
+    const tool = convertSingleWorkflowToTool(workflowData, workflowNames, logHandler);
+    workflowNames.add(tool.name);
+    tools.push(tool);
   });
   
   return tools;

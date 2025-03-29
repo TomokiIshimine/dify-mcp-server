@@ -1,6 +1,6 @@
 {
   "name": "@tonlab/dify-mcp-server",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Dify MCP Server. This is a tool server for Dify Workflow.",
   "main": "dist/index.js",
   "bin": {
